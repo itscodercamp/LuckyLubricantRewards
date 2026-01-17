@@ -1,0 +1,84 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#4f46e5" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Lucky Lubes" />
+    <link rel="apple-touch-icon" href="https://img.icons8.com/fluency/192/000000/oil-industry.png" />
+    
+    <title>Lucky Lubricant Rewards</title>
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="manifest.json" />
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap" rel="stylesheet">
+    <style>
+      :root {
+        --font-main: 'Inter', system-ui, -apple-system, sans-serif;
+      }
+      body {
+        font-family: var(--font-main);
+        -webkit-tap-highlight-color: transparent;
+        background-color: #f5f3ff;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        text-rendering: optimizeLegibility;
+      }
+      body::-webkit-scrollbar {
+        display: none;
+      }
+      .no-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
+      .no-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+      .heading-italic {
+        font-style: italic;
+        letter-spacing: -0.02em;
+      }
+      @keyframes scan-line {
+        0%, 100% { top: 10%; opacity: 0.3; }
+        50% { top: 90%; opacity: 1; }
+      }
+      .animate-scan {
+        animation: scan-line 2.5s ease-in-out infinite;
+      }
+      .nav-active-glow {
+        filter: drop-shadow(0 0 8px rgba(168, 85, 247, 0.6));
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react": "https://esm.sh/react@^19.2.3",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "jsqr": "https://esm.sh/jsqr@1.4.0"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body class="bg-[#f5f3ff] text-slate-900 overflow-x-hidden">
+    <div id="root"></div>
+    
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then(reg => console.log('Lucky Lubes PWA: Service Worker Registered', reg))
+            .catch(err => console.log('Lucky Lubes PWA: Registration Failed', err));
+        });
+      }
+    </script>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>

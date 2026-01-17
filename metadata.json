@@ -1,0 +1,7 @@
+{
+  "name": "Lucky Lubricant Rewards",
+  "description": "A modern loyalty and rewards management application for Lucky Lubricant customers to track points, redeem gifts, and browse products.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
