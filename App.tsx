@@ -11,24 +11,67 @@ import Auth from './pages/Auth.tsx';
 import DetailModal from './components/DetailModal.tsx';
 import NotificationPanel from './components/NotificationPanel.tsx';
 import ImagePreview from './components/ImagePreview.tsx';
-import InstallPrompt from './components/InstallPrompt.tsx';
+// import InstallPrompt from './components/InstallPrompt.tsx';
 import { TabType, User, Reward, Product } from './types.ts';
+
 import { api } from './services/api.ts';
 
-const SplashScreen: React.FC = () => (
-  <div className="fixed inset-0 bg-[#1e1b4b] flex flex-col items-center justify-center z-[200] animate-in fade-in duration-700">
-    <div className="w-32 h-32 bg-transparent flex items-center justify-center mb-8 animate-bounce">
-      <img src="/logo.png" alt="Lucky Lubricants" className="w-full h-full object-contain drop-shadow-2xl" />
+interface SplashScreenProps {
+  onContinue: () => void;
+  onInstall: () => void;
+  canInstall: boolean;
+}
+
+const SplashScreen: React.FC<SplashScreenProps> = ({ onContinue, onInstall, canInstall }) => (
+  <div className="fixed inset-0 bg-[#1e1b4b] flex flex-col items-center justify-center z-[200] p-6 text-center overflow-hidden">
+    {/* Animated background elements */}
+    <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-purple-600/10 blur-[120px] rounded-full animate-pulse"></div>
+    <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-indigo-600/10 blur-[120px] rounded-full animate-pulse [animation-delay:2s]"></div>
+
+    <div className="relative z-10 flex flex-col items-center max-w-sm w-full">
+      <div className="w-36 h-36 bg-transparent flex items-center justify-center mb-8 animate-bounce">
+        <img src="/logo.png" alt="Lucky Lubricants" className="w-full h-full object-contain drop-shadow-[0_0_30px_rgba(139,92,246,0.3)]" />
+      </div>
+
+      <h1 className="text-white text-3xl font-black tracking-[0.2em] italic mb-2 uppercase">LUCKY LUBRICANTS</h1>
+      <p className="text-purple-300/60 text-xs font-black uppercase tracking-[0.4em] mb-12 italic">Premium Performance Hub</p>
+
+      <div className="flex flex-col gap-4 w-full">
+        {canInstall && (
+          <button
+            onClick={onInstall}
+            className="group relative w-full py-5 bg-gradient-to-r from-purple-600 to-indigo-600 rounded-2xl font-black italic uppercase tracking-widest text-white shadow-[0_20px_40px_-10px_rgba(79,70,229,0.5)] active:scale-95 transition-all overflow-hidden"
+          >
+            <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
+            <span className="relative flex items-center justify-center gap-3">
+              <Download size={22} className="animate-bounce" /> Download Mobile App
+            </span>
+          </button>
+        )}
+
+        <button
+          onClick={onContinue}
+          className="w-full py-5 bg-white/5 border border-white/10 rounded-2xl font-black italic uppercase tracking-widest text-purple-200 hover:bg-white/10 active:scale-95 transition-all text-xs backdrop-blur-sm"
+        >
+          Continue on Web
+        </button>
+      </div>
+
+      <p className="mt-12 text-white/20 text-[10px] font-black uppercase tracking-[0.3em] flex items-center gap-3 italic">
+        <span className="w-8 h-[1px] bg-white/10"></span>
+        Welcome to the Rewards
+        <span className="w-8 h-[1px] bg-white/10"></span>
+      </p>
     </div>
-    <h1 className="text-white text-2xl font-black tracking-widest italic mb-4 animate-pulse uppercase">LUCKY LUBRICANTS</h1>
-    <div className="flex gap-1.5">
-      <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-      <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-      <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce"></div>
+
+    <div className="absolute bottom-8 flex gap-2">
+      <div className="w-1.5 h-1.5 bg-purple-500/30 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+      <div className="w-1.5 h-1.5 bg-purple-500/30 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+      <div className="w-1.5 h-1.5 bg-purple-500/30 rounded-full animate-bounce"></div>
     </div>
-    <p className="text-purple-100/40 text-[9px] font-black uppercase tracking-[0.3em] mt-12 italic">Premium Performance Hub</p>
   </div>
 );
+
 
 const App: React.FC = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(() => {
@@ -47,7 +90,7 @@ const App: React.FC = () => {
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'cart' | 'reward' | 'error' | 'install' } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const [showInstallPrompt, setShowInstallPrompt] = useState(false);
+
 
   const [user, setUser] = useState<User>({
     name: "Guest User",
@@ -58,14 +101,23 @@ const App: React.FC = () => {
   });
 
   useEffect(() => {
+    // Check if running in standalone mode (PWA)
+    const checkIsStandalone = () => {
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
+        (window.navigator as any).standalone === true ||
+        document.referrer.includes('android-app://') ||
+        localStorage.getItem('pwa_installed') === 'true';
+      return isStandalone;
+    };
+
+    if (checkIsStandalone()) {
+      setShowSplash(false);
+    }
+
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
       setDeferredPrompt(e);
-      // Show immediately if already logged in (from refresh)
-      const token = localStorage.getItem('lucky_token');
-      if (token) {
-        setShowInstallPrompt(true);
-      }
+      // Automatically show install prompt logic is now handled by SplashScreen buttons
     });
 
     const checkSession = async () => {
@@ -77,8 +129,7 @@ const App: React.FC = () => {
         if (!token || !userId || !sessionStart) return false;
         const now = Date.now();
         const duration = now - parseInt(sessionStart, 10);
-        const TWELVE_HOURS = 12 * 60 * 60 * 1000;
-        return duration < TWELVE_HOURS;
+        return duration < 12 * 60 * 60 * 1000;
       };
 
       if (isSessionValid()) {
@@ -93,11 +144,11 @@ const App: React.FC = () => {
         localStorage.clear();
         setIsLoggedIn(false);
       }
-      // Ensure splash screen hides only after session check is complete
-      setTimeout(() => setShowSplash(false), 2000);
+      // Removed the automatic splash timeout as requested
     };
     checkSession();
-  }, [deferredPrompt]);
+  }, []);
+
 
   const refreshUserData = async () => {
     try {
@@ -161,11 +212,8 @@ const App: React.FC = () => {
     refreshUserData().then(() => {
       setIsLoggedIn(true);
       setActiveTab('home');
-      // Show install prompt immediately after login if available
-      if (deferredPrompt) {
-        setShowInstallPrompt(true);
-      }
     });
+
   };
 
   const handleLogout = () => {
@@ -173,9 +221,28 @@ const App: React.FC = () => {
     setIsLoggedIn(false);
   };
 
-  if (showSplash) return <SplashScreen />;
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setDeferredPrompt(null);
+      setShowSplash(false);
+    }
+  };
+
+  if (showSplash) {
+    return (
+      <SplashScreen
+        onContinue={() => setShowSplash(false)}
+        onInstall={handleInstallClick}
+        canInstall={!!deferredPrompt}
+      />
+    );
+  }
 
   return (
+
     <>
       {!isLoggedIn ? (
         <Auth onLogin={handleLogin} />
@@ -255,12 +322,6 @@ const App: React.FC = () => {
             <p className="mt-6 text-purple-400 font-black text-[10px] uppercase tracking-[0.3em] animate-pulse italic">Processing Transaction...</p>
           </div>
         </div>
-      )}
-      {showInstallPrompt && deferredPrompt && isLoggedIn && (
-        <InstallPrompt
-          deferredPrompt={deferredPrompt}
-          onClose={() => setShowInstallPrompt(false)}
-        />
       )}
     </>
   );
