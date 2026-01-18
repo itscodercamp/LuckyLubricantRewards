@@ -42,6 +42,7 @@ export const api = {
     }
     if (data.access_token) {
       localStorage.setItem('lucky_token', data.access_token);
+      localStorage.setItem('lucky_session_start', Date.now().toString());
     }
     return data;
   },

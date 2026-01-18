@@ -11,6 +11,7 @@ import Auth from './pages/Auth.tsx';
 import DetailModal from './components/DetailModal.tsx';
 import NotificationPanel from './components/NotificationPanel.tsx';
 import ImagePreview from './components/ImagePreview.tsx';
+import InstallPrompt from './components/InstallPrompt.tsx';
 import { TabType, User, Reward, Product } from './types.ts';
 import { api } from './services/api.ts';
 
@@ -30,15 +31,23 @@ const SplashScreen: React.FC = () => (
 );
 
 const App: React.FC = () => {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(() => {
+    const token = localStorage.getItem('lucky_token');
+    const userId = localStorage.getItem('lucky_user_id');
+    const sessionStart = localStorage.getItem('lucky_session_start');
+    if (!token || !userId || !sessionStart) return false;
+    const duration = Date.now() - parseInt(sessionStart, 10);
+    return duration < 12 * 60 * 60 * 1000;
+  });
   const [showSplash, setShowSplash] = useState(true);
   const [activeTab, setActiveTab] = useState<TabType>('home');
   const [showNotifications, setShowNotifications] = useState(false);
-  const [selectedItem, setSelectedItem] = useState<{item: any, type: 'product' | 'reward'} | null>(null);
+  const [selectedItem, setSelectedItem] = useState<{ item: any, type: 'product' | 'reward' } | null>(null);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
-  const [toast, setToast] = useState<{message: string, type: 'success' | 'cart' | 'reward' | 'error' | 'install'} | null>(null);
+  const [toast, setToast] = useState<{ message: string, type: 'success' | 'cart' | 'reward' | 'error' | 'install' } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showInstallPrompt, setShowInstallPrompt] = useState(false);
 
   const [user, setUser] = useState<User>({
     name: "Guest User",
@@ -52,24 +61,43 @@ const App: React.FC = () => {
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
       setDeferredPrompt(e);
+      // Show immediately if already logged in (from refresh)
+      const token = localStorage.getItem('lucky_token');
+      if (token) {
+        setShowInstallPrompt(true);
+      }
     });
 
     const checkSession = async () => {
       const token = localStorage.getItem('lucky_token');
       const userId = localStorage.getItem('lucky_user_id');
-      if (token && userId) {
+      const sessionStart = localStorage.getItem('lucky_session_start');
+
+      const isSessionValid = () => {
+        if (!token || !userId || !sessionStart) return false;
+        const now = Date.now();
+        const duration = now - parseInt(sessionStart, 10);
+        const TWELVE_HOURS = 12 * 60 * 60 * 1000;
+        return duration < TWELVE_HOURS;
+      };
+
+      if (isSessionValid()) {
         try {
           await refreshUserData();
           setIsLoggedIn(true);
         } catch (e) {
-          localStorage.removeItem('lucky_token');
-          localStorage.removeItem('lucky_user_id');
+          localStorage.clear();
+          setIsLoggedIn(false);
         }
+      } else {
+        localStorage.clear();
+        setIsLoggedIn(false);
       }
+      // Ensure splash screen hides only after session check is complete
       setTimeout(() => setShowSplash(false), 2000);
     };
     checkSession();
-  }, []);
+  }, [deferredPrompt]);
 
   const refreshUserData = async () => {
     try {
@@ -78,7 +106,7 @@ const App: React.FC = () => {
         api.getBalance(),
         api.getNotifications()
       ]);
-      
+
       setUser({
         ...profile,
         points: balanceData.points || 0,
@@ -133,6 +161,10 @@ const App: React.FC = () => {
     refreshUserData().then(() => {
       setIsLoggedIn(true);
       setActiveTab('home');
+      // Show install prompt immediately after login if available
+      if (deferredPrompt) {
+        setShowInstallPrompt(true);
+      }
     });
   };
 
@@ -142,40 +174,42 @@ const App: React.FC = () => {
   };
 
   if (showSplash) return <SplashScreen />;
-  if (!isLoggedIn) return <Auth onLogin={handleLogin} />;
 
   return (
     <>
-      <Layout activeTab={activeTab} setActiveTab={setActiveTab} user={user} onNotificationClick={() => setShowNotifications(true)}>
-        {activeTab === 'home' && (
-          <Home 
-            user={user} 
-            onNavigateRewards={() => setActiveTab('rewards')} 
-            onScanVoucher={handleScanVoucher}
-            canInstall={!!deferredPrompt}
-            onInstall={() => deferredPrompt?.prompt()}
-            onSelectProduct={(p) => setSelectedItem({item: p, type: 'product'})}
-            onSelectReward={(r) => setSelectedItem({item: r, type: 'reward'})}
-          />
-        )}
-        {activeTab === 'products' && (
-          <div className="relative">
-            <Products onSelectProduct={(p) => setSelectedItem({item: p, type: 'product'})} />
-          </div>
-        )}
-        {activeTab === 'rewards' && <Rewards user={user} onBack={() => setActiveTab('home')} onSelectReward={(r) => setSelectedItem({item: r, type: 'reward'})} />}
-        {activeTab === 'about' && <About />}
-        {activeTab === 'profile' && <Profile user={user} onLogout={handleLogout} />}
-      </Layout>
+      {!isLoggedIn ? (
+        <Auth onLogin={handleLogin} />
+      ) : (
+        <Layout activeTab={activeTab} setActiveTab={setActiveTab} user={user} onNotificationClick={() => setShowNotifications(true)}>
+          {activeTab === 'home' && (
+            <Home
+              user={user}
+              onNavigateRewards={() => setActiveTab('rewards')}
+              onScanVoucher={handleScanVoucher}
+              canInstall={!!deferredPrompt}
+              onInstall={() => deferredPrompt?.prompt()}
+              onSelectProduct={(p) => setSelectedItem({ item: p, type: 'product' })}
+              onSelectReward={(r) => setSelectedItem({ item: r, type: 'reward' })}
+            />
+          )}
+          {activeTab === 'products' && (
+            <div className="relative">
+              <Products onSelectProduct={(p) => setSelectedItem({ item: p, type: 'product' })} />
+            </div>
+          )}
+          {activeTab === 'rewards' && <Rewards user={user} onBack={() => setActiveTab('home')} onSelectReward={(r) => setSelectedItem({ item: r, type: 'reward' })} />}
+          {activeTab === 'about' && <About />}
+          {activeTab === 'profile' && <Profile user={user} onLogout={handleLogout} />}
+        </Layout>
+      )}
 
       {toast && (
         <div className="fixed top-20 left-4 right-4 z-[300] animate-in fade-in slide-in-from-top-12 duration-500">
-          <div className={`p-5 rounded-[2rem] shadow-[0_20px_50px_rgba(79,70,229,0.3)] flex items-center gap-4 border backdrop-blur-xl ${
-            toast.type === 'reward' ? 'bg-emerald-500 border-emerald-400 text-white' : 
-            toast.type === 'error' ? 'bg-rose-600 border-rose-400 text-white' : 
-            toast.type === 'cart' ? 'bg-indigo-600 border-indigo-400 text-white' :
-            'bg-[#1e1b4b] border-purple-500/30 text-white'
-          }`}>
+          <div className={`p-5 rounded-[2rem] shadow-[0_20px_50px_rgba(79,70,229,0.3)] flex items-center gap-4 border backdrop-blur-xl ${toast.type === 'reward' ? 'bg-emerald-500 border-emerald-400 text-white' :
+            toast.type === 'error' ? 'bg-rose-600 border-rose-400 text-white' :
+              toast.type === 'cart' ? 'bg-indigo-600 border-indigo-400 text-white' :
+                'bg-[#1e1b4b] border-purple-500/30 text-white'
+            }`}>
             <div className="shrink-0 w-12 h-12 flex items-center justify-center rounded-2xl bg-white/20">
               {toast.type === 'reward' && <Gift size={24} />}
               {toast.type === 'error' && <CircleAlert size={24} />}
@@ -196,16 +230,16 @@ const App: React.FC = () => {
       )}
 
       {showNotifications && (
-        <NotificationPanel notifications={user.notifications} onClose={() => setShowNotifications(false)} onClear={() => {}} onMarkAsRead={() => {}} />
+        <NotificationPanel notifications={user.notifications} onClose={() => setShowNotifications(false)} onClear={() => { }} onMarkAsRead={() => { }} />
       )}
 
       {selectedItem && (
-        <DetailModal 
-          item={selectedItem.item} 
-          type={selectedItem.type} 
-          userPoints={user.points} 
-          onClose={() => setSelectedItem(null)} 
-          onAction={handleModalAction} 
+        <DetailModal
+          item={selectedItem.item}
+          type={selectedItem.type}
+          userPoints={user.points}
+          onClose={() => setSelectedItem(null)}
+          onAction={handleModalAction}
           onPreviewImage={(url) => setPreviewImageUrl(url)}
         />
       )}
@@ -216,11 +250,17 @@ const App: React.FC = () => {
 
       {isLoading && (
         <div className="fixed inset-0 z-[400] bg-black/40 backdrop-blur-md flex items-center justify-center animate-in fade-in duration-300">
-           <div className="bg-[#1e1b4b] p-10 rounded-[3rem] shadow-2xl flex flex-col items-center border border-purple-500/20">
-              <div className="w-16 h-16 border-4 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
-              <p className="mt-6 text-purple-400 font-black text-[10px] uppercase tracking-[0.3em] animate-pulse italic">Processing Transaction...</p>
-           </div>
+          <div className="bg-[#1e1b4b] p-10 rounded-[3rem] shadow-2xl flex flex-col items-center border border-purple-500/20">
+            <div className="w-16 h-16 border-4 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
+            <p className="mt-6 text-purple-400 font-black text-[10px] uppercase tracking-[0.3em] animate-pulse italic">Processing Transaction...</p>
+          </div>
         </div>
+      )}
+      {showInstallPrompt && deferredPrompt && isLoggedIn && (
+        <InstallPrompt
+          deferredPrompt={deferredPrompt}
+          onClose={() => setShowInstallPrompt(false)}
+        />
       )}
     </>
   );
