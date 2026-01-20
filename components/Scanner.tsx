@@ -12,27 +12,54 @@ const Scanner: React.FC<ScannerProps> = ({ onClose, onScanSuccess }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
+
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [isDetected, setIsDetected] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [torchOn, setTorchOn] = useState(false);
+  const [hasTorch, setHasTorch] = useState(false);
   const requestRef = useRef<number>(null);
 
   useEffect(() => {
     async function setupCamera() {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } 
-        });
+        // Try to get camera with flexible constraints
+        const constraints = {
+          video: {
+            facingMode: 'environment',
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          }
+        };
+
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
+          // Ensure these are set before calling play()
+          videoRef.current.muted = true;
           videoRef.current.setAttribute("playsinline", "true");
-          videoRef.current.play();
-          setHasPermission(true);
+
+          try {
+            videoRef.current.play();
+            setHasPermission(true);
+
+            // Check for torch capability
+            const track = stream.getVideoTracks()[0];
+            const capabilities = track.getCapabilities() as any;
+            if (capabilities.torch) {
+              setHasTorch(true);
+            }
+          } catch (playError) {
+            console.error("Autoplay blocked or play failed:", playError);
+            // On some browsers, play() might fail if not triggered by user interaction
+            // but for PWA/Camera it usually works if muted
+            setHasPermission(true); // Still set permission true as we have the stream
+          }
         }
       } catch (err) {
-        console.error("Camera access denied:", err);
+        console.error("Camera access denied or media error:", err);
         setHasPermission(false);
       }
     }
@@ -46,6 +73,22 @@ const Scanner: React.FC<ScannerProps> = ({ onClose, onScanSuccess }) => {
     };
   }, []);
 
+  const toggleTorch = async () => {
+    try {
+      const stream = videoRef.current?.srcObject as MediaStream;
+      const track = stream?.getVideoTracks()[0];
+      if (track && hasTorch) {
+        const newTorchState = !torchOn;
+        await (track as any).applyConstraints({
+          advanced: [{ torch: newTorchState }]
+        });
+        setTorchOn(newTorchState);
+      }
+    } catch (err) {
+      console.error("Torch toggle failed:", err);
+    }
+  };
+
   const tick = () => {
     if (videoRef.current && videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA && !isDetected && !isProcessing) {
       const video = videoRef.current;
@@ -53,12 +96,19 @@ const Scanner: React.FC<ScannerProps> = ({ onClose, onScanSuccess }) => {
       if (canvas) {
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
         if (ctx) {
-          canvas.height = video.videoHeight;
-          canvas.width = video.videoWidth;
+          // Scale down for better performance if video is too large
+          const scale = Math.min(1, 640 / Math.max(video.videoWidth, video.videoHeight));
+          canvas.width = video.videoWidth * scale;
+          canvas.height = video.videoHeight * scale;
+
+          // Apply filters for better QR detection in low light
+          ctx.filter = 'brightness(1.1) contrast(1.2)';
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          ctx.filter = 'none'; // Reset filter for next time
+
           const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
           const code = jsQR(imageData.data, imageData.width, imageData.height, {
-            inversionAttempts: "dontInvert",
+            inversionAttempts: "attemptBoth",
           });
 
           if (code && code.data) {
@@ -72,10 +122,25 @@ const Scanner: React.FC<ScannerProps> = ({ onClose, onScanSuccess }) => {
   };
 
   const handleCodeFound = (data: string) => {
+    // If scanning a URL, try to extract the last part (UUID)
+    let processedData = data;
+    try {
+      if (data.startsWith('http')) {
+        const url = new URL(data);
+        // Try to get from pathname (e.g., /uuid) or search params
+        const pathParts = url.pathname.split('/').filter(Boolean);
+        if (pathParts.length > 0) {
+          processedData = pathParts[pathParts.length - 1];
+        }
+      }
+    } catch (e) {
+      // Not a valid URL, just use raw data
+    }
+
     setIsDetected(true);
     if (navigator.vibrate) navigator.vibrate(200);
     setTimeout(() => {
-      onScanSuccess(data);
+      onScanSuccess(processedData);
     }, 800);
   };
 
@@ -103,7 +168,9 @@ const Scanner: React.FC<ScannerProps> = ({ onClose, onScanSuccess }) => {
         ctx.drawImage(img, 0, 0);
 
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const code = jsQR(imageData.data, imageData.width, imageData.height);
+        const code = jsQR(imageData.data, imageData.width, imageData.height, {
+          inversionAttempts: "attemptBoth",
+        });
 
         if (code && code.data) {
           handleCodeFound(code.data);
@@ -153,9 +220,12 @@ const Scanner: React.FC<ScannerProps> = ({ onClose, onScanSuccess }) => {
     <div className="fixed inset-0 z-[100] bg-black flex flex-col overflow-hidden animate-in fade-in duration-500">
       <canvas ref={canvasRef} className="hidden" />
       <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" className="hidden" />
-      
-      <video 
-        ref={videoRef} 
+
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted
         className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-500 ${isProcessing ? 'opacity-30' : 'opacity-70'}`}
       />
 
@@ -171,9 +241,16 @@ const Scanner: React.FC<ScannerProps> = ({ onClose, onScanSuccess }) => {
               {isProcessing ? 'PROCESSING IMAGE...' : isDetected ? 'CODE CAPTURED!' : 'Detecting Voucher...'}
             </p>
           </div>
-          <button className="p-3 bg-white/10 backdrop-blur-md rounded-2xl text-white">
-            <Zap size={20} />
-          </button>
+          {hasTorch ? (
+            <button
+              onClick={toggleTorch}
+              className={`p-3 backdrop-blur-md rounded-2xl active:scale-90 transition-all ${torchOn ? 'bg-amber-400 text-black' : 'bg-white/10 text-white'}`}
+            >
+              <Zap size={20} fill={torchOn ? "currentColor" : "none"} />
+            </button>
+          ) : (
+            <div className="w-12 h-12" /> // Placeholder to keep center alignment
+          )}
         </div>
 
         {/* Viewfinder */}
@@ -200,8 +277,8 @@ const Scanner: React.FC<ScannerProps> = ({ onClose, onScanSuccess }) => {
             {/* Scanning Line / Success State */}
             {isDetected ? (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-emerald-500/30 backdrop-blur-[2px] rounded-3xl z-30 animate-in zoom-in duration-300">
-                 <CheckCircle2 className="text-white mb-2" size={60} strokeWidth={3} />
-                 <p className="text-white text-[10px] font-black uppercase tracking-[0.2em]">Validated</p>
+                <CheckCircle2 className="text-white mb-2" size={60} strokeWidth={3} />
+                <p className="text-white text-[10px] font-black uppercase tracking-[0.2em]">Validated</p>
               </div>
             ) : isProcessing ? (
               <div className="absolute inset-0 flex flex-col items-center justify-center z-30">
@@ -218,14 +295,14 @@ const Scanner: React.FC<ScannerProps> = ({ onClose, onScanSuccess }) => {
         <div className="p-10 bg-gradient-to-t from-black/90 to-transparent text-center z-50">
           <p className="text-white/60 text-[10px] font-black uppercase tracking-[0.2em] mb-8">Align QR code within the frame</p>
           <div className="flex gap-4">
-            <button 
+            <button
               onClick={handleGalleryClick}
               disabled={isProcessing || isDetected}
               className="flex-1 flex items-center justify-center gap-3 bg-white/10 backdrop-blur-md text-white py-4 px-6 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-white/20 active:scale-95 transition-all disabled:opacity-50"
             >
               <ImageIcon size={18} /> GALLERY
             </button>
-            <button 
+            <button
               onClick={() => onScanSuccess('MANUAL-VOUCHER-ENTRY')}
               disabled={isProcessing || isDetected}
               className="flex-1 bg-white text-[#0f172a] py-4 px-6 rounded-2xl text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50"
@@ -235,7 +312,7 @@ const Scanner: React.FC<ScannerProps> = ({ onClose, onScanSuccess }) => {
           </div>
         </div>
       </div>
-    </div>
+    </div >
   );
 };
 

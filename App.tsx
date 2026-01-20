@@ -74,15 +74,37 @@ const SplashScreen: React.FC<SplashScreenProps> = ({ onContinue, onInstall, canI
 
 
 const App: React.FC = () => {
+  const SESSION_DURATION = 24 * 60 * 60 * 1000;
+
   const [isLoggedIn, setIsLoggedIn] = useState(() => {
     const token = localStorage.getItem('lucky_token');
-    const userId = localStorage.getItem('lucky_user_id');
     const sessionStart = localStorage.getItem('lucky_session_start');
-    if (!token || !userId || !sessionStart) return false;
+    if (!token || !sessionStart) return false;
+
     const duration = Date.now() - parseInt(sessionStart, 10);
-    return duration < 12 * 60 * 60 * 1000;
+    return duration < SESSION_DURATION;
   });
-  const [showSplash, setShowSplash] = useState(true);
+
+  const [showSplash, setShowSplash] = useState(() => {
+    // Check if running in standalone mode (PWA)
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
+      (window.navigator as any).standalone === true ||
+      localStorage.getItem('pwa_installed') === 'true';
+
+    if (isStandalone) return false;
+
+    const token = localStorage.getItem('lucky_token');
+    const sessionStart = localStorage.getItem('lucky_session_start');
+
+    // If logged in and session is still valid, skip splash entirely
+    if (token && sessionStart) {
+      const duration = Date.now() - parseInt(sessionStart, 10);
+      if (duration < SESSION_DURATION) return false;
+    }
+
+    return true;
+  });
+
   const [activeTab, setActiveTab] = useState<TabType>('home');
   const [showNotifications, setShowNotifications] = useState(false);
   const [selectedItem, setSelectedItem] = useState<{ item: any, type: 'product' | 'reward' } | null>(null);
@@ -101,50 +123,30 @@ const App: React.FC = () => {
   });
 
   useEffect(() => {
-    // Check if running in standalone mode (PWA)
-    const checkIsStandalone = () => {
-      const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
-        (window.navigator as any).standalone === true ||
-        document.referrer.includes('android-app://') ||
-        localStorage.getItem('pwa_installed') === 'true';
-      return isStandalone;
-    };
-
-    if (checkIsStandalone()) {
-      setShowSplash(false);
-    }
-
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
       setDeferredPrompt(e);
-      // Automatically show install prompt logic is now handled by SplashScreen buttons
     });
 
     const checkSession = async () => {
       const token = localStorage.getItem('lucky_token');
-      const userId = localStorage.getItem('lucky_user_id');
       const sessionStart = localStorage.getItem('lucky_session_start');
 
-      const isSessionValid = () => {
-        if (!token || !userId || !sessionStart) return false;
-        const now = Date.now();
-        const duration = now - parseInt(sessionStart, 10);
-        return duration < 12 * 60 * 60 * 1000;
-      };
-
-      if (isSessionValid()) {
-        try {
-          await refreshUserData();
-          setIsLoggedIn(true);
-        } catch (e) {
-          localStorage.clear();
-          setIsLoggedIn(false);
+      if (token && sessionStart) {
+        const duration = Date.now() - parseInt(sessionStart, 10);
+        if (duration < SESSION_DURATION) {
+          try {
+            await refreshUserData();
+            setIsLoggedIn(true);
+          } catch (e) {
+            console.warn("Background session sync failed, keeping local session active", e);
+          }
+        } else {
+          handleLogout();
         }
       } else {
-        localStorage.clear();
         setIsLoggedIn(false);
       }
-      // Removed the automatic splash timeout as requested
     };
     checkSession();
   }, []);
